@@ -167,7 +167,7 @@ impl <F: Field> MerkleSumTreeChip<F> {
         element_hash: F,
         element_balance: F,
         index: F,
-    ) -> Result<(AssignedCell<F, F>, AssignedCell<F, F>), Error> {
+    ) -> Result<(AssignedCell<F, F>, AssignedCell<F, F>, AssignedCell<F, F>, AssignedCell<F, F>), Error> {
         let (left_hash, left_balance, right_hash, right_balance, computed_sum_cell) = layouter
             .assign_region(
                 || "merkle prove layer",
@@ -288,10 +288,10 @@ impl <F: Field> MerkleSumTreeChip<F> {
         // 3. Constrain the digest to be equal to the hash of the left and right values
         let computed_hash = poseidon_chip.hash(
             layouter.namespace(|| "hash four child nodes"),
-            [left_hash, left_balance, right_hash, right_balance],
+            [left_hash, left_balance.clone(), right_hash, right_balance.clone()],
         )?;
 
-        Ok((computed_hash, computed_sum_cell))
+        Ok((left_balance, right_balance, computed_hash, computed_sum_cell))
     }
 
     // Enforce computed sum to be less than total assets passed inside the instance column
@@ -307,7 +307,7 @@ impl <F: Field> MerkleSumTreeChip<F> {
         let chip = LtChip::construct(self.config.lt_config);
 
         layouter.assign_region(
-            || "enforce sum to be less than total assets",
+            || format!("enforce {:?} less than {:?}", computed_sum, total_assets),
             |mut region| {
 
                 // copy the computed sum to the cell in the first column

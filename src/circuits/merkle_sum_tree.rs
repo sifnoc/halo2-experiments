@@ -55,7 +55,7 @@ impl <F:Field> Circuit<F> for MerkleSumTreeCircuit<F> {
 
         // apply it for level 0 of the merkle tree
         // node cells passed as inputs are the leaf_hash cell and the leaf_balance cell
-        let (mut next_hash, mut next_sum) = chip.merkle_prove_layer(
+        let (mut left_balance, mut right_balance, mut next_hash, mut next_sum) = chip.merkle_prove_layer(
             layouter.namespace(|| format!("level {} merkle proof", 0)),
             &leaf_hash,
             &leaf_balance,
@@ -67,7 +67,8 @@ impl <F:Field> Circuit<F> for MerkleSumTreeCircuit<F> {
         // apply it for the remaining levels of the merkle tree
         // node cells passed as inputs are the computed_hash_prev_level cell and the computed_balance_prev_level cell
         for i in 1..self.path_element_balances.len() {
-            (next_hash, next_sum) = chip.merkle_prove_layer(
+            
+            (left_balance, right_balance, next_hash, next_sum) = chip.merkle_prove_layer(
                 layouter.namespace(|| format!("level {} merkle proof", i)),
                 &next_hash,
                 &next_sum,
@@ -75,6 +76,22 @@ impl <F:Field> Circuit<F> for MerkleSumTreeCircuit<F> {
                 self.path_element_balances[i],
                 self.path_indices[i],
             )?;
+            println!("next hash: {:?}", next_hash);
+            println!("next sum: {:?}", next_sum);
+            
+            // Check overflow comparing previous balances
+            let mut l_value = F::zero(); 
+            let mut r_value = F::zero();
+            let mut sum_value = F::zero();
+
+            left_balance.value().map(|f| l_value = l_value.add(f));
+            right_balance.value().map(|f| r_value = r_value.add(f));
+            next_sum.value().map(|f| sum_value = sum_value.add(f));
+            
+            println!("left: {:?}, sum: {:?}", l_value, sum_value);
+
+            chip.enforce_less_than(layouter.namespace(|| "left_balance < computed_sum"), &next_sum, l_value, sum_value)?;
+            chip.enforce_less_than(layouter.namespace(|| "right_balance < computed_sum"), &next_sum, r_value, sum_value)?;
         }
 
         // compute the sum of the merkle sum tree as sum of the leaf balance and the sum of the path elements balances
@@ -126,6 +143,7 @@ mod tests {
                 .hash(message);
 
             digest.balance = digest.balance + elements[i].balance;
+            println!("{}: digest\n {:?}", i, digest);
         }
         digest
     }
@@ -369,5 +387,3 @@ mod tests {
             .unwrap();
     }
 }
-
-
