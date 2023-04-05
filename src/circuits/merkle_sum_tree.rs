@@ -173,7 +173,7 @@ mod tests {
             },
             Node {
                 hash: Fp::from(9u64),
-                balance: Fp::from(90u64),
+                balance: Fp::zero() - Fp::from(309), // for manipulating used instead of `Fp::from(90u64)`.
             },
         ];
 

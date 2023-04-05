@@ -262,6 +262,11 @@ impl <F: Field> MerkleSumTreeChip<F> {
                         || computed_sum,
                     )?;
 
+                    // Added comment for check
+                    println!("left_balance: {:?}", left_balance.value());
+                    println!("right balance: {:?}", right_balance.value());
+                    println!("computed_sum_cell: {:?}", computed_sum_cell.value());
+
                     Ok((
                         left_hash,
                         left_balance,
