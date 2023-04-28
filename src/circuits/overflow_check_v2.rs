@@ -24,15 +24,20 @@ impl Circuit<Fp> for OverflowCheckCircuitV2 {
         let col_c = meta.advice_column();
         let col_d = meta.advice_column();
         let col_e = meta.advice_column();
-        let selector = meta.selector();
+        let simple_selector = meta.selector();
+        let complex_selector = meta.complex_selector();
         let instance = meta.instance_column();
+        let table = meta.lookup_table_column();
+        meta.annotate_lookup_column(table, || "lookup table for range check");
 
         OverflowChipV2::configure(
             meta,
             col_a,
             [col_b, col_c, col_d, col_e],
             instance,
-            selector,
+            table,
+            simple_selector,
+            complex_selector,
         )
     }
 
@@ -95,7 +100,7 @@ mod tests {
     use halo2_proofs::{circuit::Value, dev::MockProver, halo2curves::pasta::Fp};
     #[test]
     fn test_none_overflow_case() {
-        let k = 4;
+        let k = 18;
 
         // a: new value
         let a = Value::known(Fp::from((1 << 16) - 2));

@@ -3,7 +3,7 @@ use std::str::FromStr;
 use halo2_proofs::circuit::*;
 use halo2_proofs::halo2curves::pasta::Fp;
 use num_bigint::BigUint;
-use halo2_proofs::plonk::Expression;
+use halo2_proofs::plonk::{Expression, TableColumn};
 
 fn parse_hex(hex_asm: &str) -> Vec<u8> {
     let mut hex_bytes = hex_asm
@@ -81,6 +81,18 @@ pub fn range_check_vec(
             acc * (Expression::Constant(Fp::from(i as u64)) - w.clone())
         });
         exprs.push(selector.clone() * w_expr);
+    }
+    exprs
+}
+
+pub fn range_check_vec_with_table(
+    selector: &Expression<Fp>,
+    value_vec: Vec<Expression<Fp>>,
+    table: TableColumn,
+) -> Vec<(Expression<Fp>, TableColumn)> {
+    let mut exprs: Vec<(Expression<Fp>, TableColumn)> = vec![];
+    for v in value_vec {
+        exprs.push((selector.clone() * v, table));
     }
     exprs
 }

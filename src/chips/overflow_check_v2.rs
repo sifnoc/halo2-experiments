@@ -1,16 +1,16 @@
 use std::fmt::Debug;
 
-use super::utils::{
-    range_check_vec,
-};
+use super::utils::range_check_vec_with_table;
 use halo2_proofs::{circuit::*, halo2curves::pasta::Fp, plonk::*, poly::Rotation};
 
 #[derive(Debug, Clone)]
 pub struct OverflowCheckV2Config<const MAX_BITS: u8, const ACC_COLS: usize> {
     pub value: Column<Advice>,
     pub decomposed_values: [Column<Advice>; ACC_COLS],
+    pub table: TableColumn,
     pub instance: Column<Instance>,
-    pub selector: Selector,
+    pub simple_selector: Selector,
+    pub complex_selector: Selector,
 }
 
 #[derive(Debug, Clone)]
@@ -28,13 +28,15 @@ impl<const MAX_BITS: u8, const ACC_COLS: usize> OverflowChipV2<MAX_BITS, ACC_COL
         value: Column<Advice>,
         decomposed_values: [Column<Advice>; ACC_COLS],
         instance: Column<Instance>,
-        selector: Selector,
+        table: TableColumn,
+        simple_selector: Selector,
+        complex_selector: Selector,
     ) -> OverflowCheckV2Config<MAX_BITS, ACC_COLS> {
         meta.enable_equality(value);
         decomposed_values.map(|col| meta.enable_equality(col));
 
-        meta.create_gate("range check decomposed values", |meta| {
-            let s_doc = meta.query_selector(selector);
+        meta.create_gate("check decomposed values", |meta| {
+            let s_doc = meta.query_selector(simple_selector);
 
             let value = meta.query_advice(value, Rotation::cur());
 
@@ -50,18 +52,25 @@ impl<const MAX_BITS: u8, const ACC_COLS: usize> OverflowChipV2<MAX_BITS, ACC_COL
                         )))
                 });
 
-            [
-                vec![s_doc.clone() * (decomposed_value_sum - value)], // equality check between decomposed value and value
-                range_check_vec(&s_doc, decomposed_value_vec, 1 << MAX_BITS), // range check for each decomposed columns
-            ]
-            .concat()
+            vec![s_doc.clone() * (decomposed_value_sum - value)] // equality check between decomposed value and value
+        });
+
+        meta.lookup("range check decomposed_values", |cells| {
+            let s = cells.query_selector(complex_selector);
+            let decomposed_value_vec = (0..ACC_COLS)
+                .map(|i| cells.query_advice(decomposed_values[i], Rotation::cur()))
+                .collect::<Vec<_>>();
+
+            range_check_vec_with_table(&s, decomposed_value_vec, table)
         });
 
         OverflowCheckV2Config {
             value,
             decomposed_values,
+            table,
             instance,
-            selector,
+            simple_selector,
+            complex_selector,
         }
     }
 
@@ -69,29 +78,32 @@ impl<const MAX_BITS: u8, const ACC_COLS: usize> OverflowChipV2<MAX_BITS, ACC_COL
         &self,
         mut layouter: impl Layouter<Fp>,
         update_value: Value<Fp>,
-        decomposed_values: Vec<Value<Fp>>// [Value<Fp>; ACC_COLS], // ) -> Result<[AssignedCell<Fp, Fp>; ACC_COLS], Error> {
+        decomposed_values: Vec<Value<Fp>>,
     ) -> Result<(), Error> {
-        // check input value
-        // let mut sum = Fp::zero();
-        // update_value.as_ref().map(|f| sum = sum.add(f));
-        // assert!(
-        //     sum <= Fp::from(1 << 16),
-        //     "update value should less than or equal 2^16"
-        // );
+        layouter.assign_table(
+            || "table",
+            |mut table| {
+                (0..(1 << 16))
+                    .map(|i| {
+                        table.assign_cell(
+                            || format!("table[{}] = {}", i, i),
+                            self.config.table,
+                            i,
+                            || Value::known(Fp::from(i as u64)),
+                        )
+                    })
+                    .fold(Ok(()), |acc, res| acc.and(res))
+            },
+        )?;
 
         layouter.assign_region(
             || "assign decomposed values",
             |mut region| {
                 // enable selector
-                self.config.selector.enable(&mut region, 0)?;
+                self.config.simple_selector.enable(&mut region, 0)?;
 
                 // Assign input value to the cell inside the region
-                region.assign_advice(
-                    || "assign value",
-                    self.config.value,
-                    0,
-                    || update_value,
-                )?;
+                region.assign_advice(|| "assign value", self.config.value, 0, || update_value)?;
 
                 // Assign
                 for (idx, val) in decomposed_values.iter().enumerate() {
